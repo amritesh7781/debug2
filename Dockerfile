@@ -1,5 +1,5 @@
 # Stage 1: Build React Frontend
-FROM node:18-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 WORKDIR /app/client
 COPY client/package*.json ./
 RUN npm install
@@ -7,13 +7,13 @@ COPY client/ ./
 RUN npm run build
 
 # Stage 2: Install Backend Dependencies
-FROM node:18-alpine AS backend-builder
+FROM node:20-alpine AS backend-builder
 WORKDIR /app/server
 COPY server/package*.json ./
 RUN npm install --production
 
 # Stage 3: Final Image
-FROM node:18-alpine
+FROM node:20-alpine
 WORKDIR /app
 
 # Copy built frontend to server/public
