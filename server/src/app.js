@@ -20,7 +20,12 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Any route that doesn't match /api will serve the React app
+// API routes that reach this point are not found
+app.use('/api/*', (req, res) => {
+  res.status(404).json({ error: 'API resource not found' });
+});
+
+// Any other route that doesn't match /api will serve the React app
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../public', 'index.html'), (err) => {
     if (err) {

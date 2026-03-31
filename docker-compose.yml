@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    environment:
+      - NODE_ENV=production
+      - PORT=5001
+    volumes:
+      - ./server/database:/app/server/database # To persist SQLite database if needed
+    restart: always
+
+# Optional: Add a database service like Redis or Postgres if you move away from SQLite
+# db:
+#   image: postgres:15-alpine
+#   environment:
+#     - POSTGRES_PASSWORD=password
+#   volumes:
+#     - pgdata:/var/lib/postgresql/data
+
+# volumes:
+#   pgdata:

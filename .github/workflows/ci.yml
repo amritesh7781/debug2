@@ -31,9 +31,9 @@ jobs:
         working-directory: ./server
         run: npm run lint
 
-      - name: Unit Test Server (Jest)
+      - name: Unit Test Server (Vitest)
         working-directory: ./server
-        run: npm run test --passWithNoTests
+        run: npm run test
 
       # FRONTEND
       - name: Install Client Dependencies
