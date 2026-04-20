@@ -1,0 +1,22 @@
+# Hadolint configuration for ShopSmart Dockerfiles
+# https://github.com/hadolint/hadolint
+
+# Ignore rules
+ignored:
+  # DL3018: Pin versions in apk add
+  # Rationale: Alpine package pinning is not required for this project.
+  # Base images are already pinned, and we prioritize build simplicity
+  # over strict package version pinning for apk packages.
+  - DL3018
+
+# Trusted registries for base images (optional - uncomment to enforce)
+# trustedRegistries:
+#   - docker.io
+
+# Strict labels (optional - uncomment to require specific labels)
+# strictLabels: false
+
+# Label schema (optional - uncomment to enforce label schema)
+# label-schema:
+#   author: text
+#   version: text

@@ -1,0 +1,25 @@
+# Use pinned Node.js Alpine base image for reproducible builds
+FROM node:22-alpine3.21
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files and install production dependencies only
+COPY server/package*.json ./
+RUN npm ci --omit=dev
+
+# Copy application source code and database directory
+COPY server/src/ ./src/
+COPY server/database/ ./database/
+
+# Create non-root user for security
+RUN addgroup -S appuser && adduser -S appuser -G appuser
+
+# Switch to non-root user
+USER appuser
+
+# Expose application port
+EXPOSE 5001
+
+# Start the application
+CMD ["node", "src/index.js"]
