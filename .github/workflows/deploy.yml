@@ -156,16 +156,30 @@ jobs:
       # ── Step 10: Terraform Import Existing Resources ────────────
       - name: Terraform Import Existing Resources
         working-directory: terraform
-        continue-on-error: true
+        env:
+          TF_VAR_image_tag: ${{ github.sha }}
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
         run: |
           # Import ECR repositories if they exist
-          terraform import -input=false aws_ecr_repository.backend "shopsmart-backend" || echo "Backend ECR not found or already in state"
-          terraform import -input=false aws_ecr_repository.frontend "shopsmart-frontend" || echo "Frontend ECR not found or already in state"
+          echo "Checking for existing ECR repositories..."
+          
+          if aws ecr describe-repositories --repository-names "shopsmart-backend" --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "Backend ECR exists, importing..."
+            terraform import -input=false aws_ecr_repository.backend "shopsmart-backend" || echo "Import failed or already in state"
+          fi
+          
+          if aws ecr describe-repositories --repository-names "shopsmart-frontend" --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "Frontend ECR exists, importing..."
+            terraform import -input=false aws_ecr_repository.frontend "shopsmart-frontend" || echo "Import failed or already in state"
+          fi
           
           # Import ECS cluster if it exists
-          terraform import -input=false aws_ecs_cluster.main "shopsmart-cluster" || echo "ECS cluster not found or already in state"
+          if aws ecs describe-clusters --clusters "shopsmart-cluster" --region "$AWS_REGION" | grep -q "shopsmart-cluster"; then
+            echo "ECS cluster exists, importing..."
+            terraform import -input=false aws_ecs_cluster.main "shopsmart-cluster" || echo "Import failed or already in state"
+          fi
           
-          echo "✅ Existing resources imported if present"
+          echo "✅ Existing resources imported"
 
       # ── Step 11: Terraform Plan ───────────────────────────
       - name: Terraform Plan
