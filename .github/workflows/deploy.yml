@@ -150,16 +150,22 @@ jobs:
       - name: Terraform Init
         working-directory: terraform
         run: |
-          terraform init -upgrade -input=false || (rm -rf .terraform .terraform.lock.hcl && terraform init -upgrade -input=false)
-          echo "✅ Terraform initialized"
+          terraform init -upgrade -input=false
+          echo "✅ Terraform initialized (using local state)"
 
-      # ── Step 10: Terraform Import Existing ECR ────────────
-      - name: Terraform Import Existing ECR Repositories
+      # ── Step 10: Terraform Import Existing Resources ────────────
+      - name: Terraform Import Existing Resources
         working-directory: terraform
+        continue-on-error: true
         run: |
-          terraform import -input=false aws_ecr_repository.backend "shopsmart-backend" || true
-          terraform import -input=false aws_ecr_repository.frontend "shopsmart-frontend" || true
-          echo "✅ Existing ECR repositories imported if present"
+          # Import ECR repositories if they exist
+          terraform import -input=false aws_ecr_repository.backend "shopsmart-backend" || echo "Backend ECR not found or already in state"
+          terraform import -input=false aws_ecr_repository.frontend "shopsmart-frontend" || echo "Frontend ECR not found or already in state"
+          
+          # Import ECS cluster if it exists
+          terraform import -input=false aws_ecs_cluster.main "shopsmart-cluster" || echo "ECS cluster not found or already in state"
+          
+          echo "✅ Existing resources imported if present"
 
       # ── Step 11: Terraform Plan ───────────────────────────
       - name: Terraform Plan

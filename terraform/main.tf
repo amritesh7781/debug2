@@ -12,13 +12,8 @@ terraform {
   }
   required_version = ">= 1.5"
 
-  backend "s3" {
-    bucket         = "shopsmart-tfstate"
-    key            = "terraform-cicd-pipeline/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "shopsmart-tfstate-lock"
-    encrypt        = true
-  }
+  # AWS Academy: Use local state (no S3 backend)
+  # Remote state is not supported in AWS Academy environments
 }
 
 provider "aws" {
