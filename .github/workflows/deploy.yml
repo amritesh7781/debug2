@@ -225,6 +225,20 @@ jobs:
             terraform import -input=false aws_ecs_cluster.main "shopsmart-cluster" || echo "Import failed or already in state"
           fi
 
+          # Import ECS services if they exist
+          CLUSTER_ARN=$(aws ecs describe-clusters --clusters "shopsmart-cluster" --region "${{ secrets.AWS_REGION }}" --query "clusters[0].clusterArn" --output text 2>/dev/null || echo "")
+          if [ -n "$CLUSTER_ARN" ] && [ "$CLUSTER_ARN" != "None" ]; then
+            if aws ecs describe-services --cluster "shopsmart-cluster" --services "shopsmart-backend-service" --region "${{ secrets.AWS_REGION }}" --query "services[?status=='ACTIVE']" --output text 2>/dev/null | grep -q "shopsmart-backend-service"; then
+              echo "Backend ECS service exists, importing..."
+              terraform import -input=false aws_ecs_service.backend "shopsmart-cluster/shopsmart-backend-service" || echo "Import failed or already in state"
+            fi
+
+            if aws ecs describe-services --cluster "shopsmart-cluster" --services "shopsmart-frontend-service" --region "${{ secrets.AWS_REGION }}" --query "services[?status=='ACTIVE']" --output text 2>/dev/null | grep -q "shopsmart-frontend-service"; then
+              echo "Frontend ECS service exists, importing..."
+              terraform import -input=false aws_ecs_service.frontend "shopsmart-cluster/shopsmart-frontend-service" || echo "Import failed or already in state"
+            fi
+          fi
+
           echo "✅ Existing resources imported"
 
       - name: Terraform Plan
