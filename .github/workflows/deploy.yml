@@ -291,14 +291,12 @@ jobs:
             aws ecr create-repository --repository-name "$ECR_BACKEND_REPO" --region "${{ secrets.AWS_REGION }}"
 
           IMAGE_URI=$ECR_REGISTRY/$ECR_BACKEND_REPO:$IMAGE_TAG
-          LATEST_URI=$ECR_REGISTRY/$ECR_BACKEND_REPO:latest
 
           echo "Building backend Docker image..."
-          docker build -f Docker/Dockerfile.backend -t $IMAGE_URI -t $LATEST_URI .
+          docker build -f Docker/Dockerfile.backend -t $IMAGE_URI .
 
           echo "Pushing backend image to ECR..."
           docker push $IMAGE_URI
-          docker push $LATEST_URI
 
           echo "✅ Backend Docker image pushed: $IMAGE_URI"
 
@@ -312,14 +310,12 @@ jobs:
             aws ecr create-repository --repository-name "$ECR_FRONTEND_REPO" --region "${{ secrets.AWS_REGION }}"
 
           IMAGE_URI=$ECR_REGISTRY/$ECR_FRONTEND_REPO:$IMAGE_TAG
-          LATEST_URI=$ECR_REGISTRY/$ECR_FRONTEND_REPO:latest
 
           echo "Building frontend Docker image..."
-          docker build -f Docker/Dockerfile.frontend -t $IMAGE_URI -t $LATEST_URI .
+          docker build -f Docker/Dockerfile.frontend -t $IMAGE_URI .
 
           echo "Pushing frontend image to ECR..."
           docker push $IMAGE_URI
-          docker push $LATEST_URI
 
           echo "✅ Frontend Docker image pushed: $IMAGE_URI"
 
