@@ -1,6 +1,6 @@
 # ============================================================
 # GitHub Actions — Full CI/CD Pipeline
-# Builds Docker image → Pushes to ECR → Deploys via Terraform
+# Tests → Terraform Apply → Docker Build & Push → Deploy to ECS
 # AWS Academy Compatible (uses session token)
 # ============================================================
 
@@ -9,10 +9,9 @@ name: Deploy to AWS ECS
 on:
   push:
     branches:
-      - main   # Triggers on every push to main branch
+      - main
 
 env:
-  AWS_REGION: us-east-1
   TF_VERSION: 1.14.8
   TF_IN_AUTOMATION: true
   TF_VAR_subnet_ids: '["${{ secrets.AWS_SUBNET_ID }}"]'
@@ -57,179 +56,325 @@ jobs:
           hadolint Docker/Dockerfile.backend Docker/Dockerfile.frontend
           echo "✅ Dockerfiles pass linting"
 
-  deploy:
-    name: Build & Deploy
+  test:
+    name: Run Tests
     runs-on: ubuntu-latest
-    needs: lint
-
+    needs: [lint]
     steps:
-      # ── Step 1: Checkout code ──────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Backend — Install dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Backend — Run tests
+        working-directory: server
+        run: npx vitest run --reporter=junit --outputFile=test-results/junit.xml
+
+      - name: Backend — Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: server/test-results/junit.xml
+          if-no-files-found: warn
+
+      - name: Frontend — Install dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Frontend — Run tests
+        working-directory: client
+        run: npx vitest run --reporter=junit --outputFile=test-results/junit.xml
+
+      - name: Frontend — Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-test-results
+          path: client/test-results/junit.xml
+          if-no-files-found: warn
+
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ── Step 2: Configure AWS credentials (Academy = 3 keys) ──
+      - name: Validate AWS_REGION secret
+        run: |
+          test -n "${{ secrets.AWS_REGION }}" || (echo "❌ Missing secret: AWS_REGION" && exit 1)
+          echo "✅ AWS_REGION secret is present"
+
+      - name: Validate required secrets
+        run: |
+          test -n "${{ secrets.AWS_ACCESS_KEY_ID }}" || (echo "❌ Missing secret: AWS_ACCESS_KEY_ID" && exit 1)
+          test -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" || (echo "❌ Missing secret: AWS_SECRET_ACCESS_KEY" && exit 1)
+          test -n "${{ secrets.AWS_SESSION_TOKEN }}" || (echo "❌ Missing secret: AWS_SESSION_TOKEN" && exit 1)
+          test -n "${{ secrets.AWS_SUBNET_ID }}" || (echo "❌ Missing secret: AWS_SUBNET_ID" && exit 1)
+          test -n "${{ secrets.AWS_SECURITY_GROUP_ID }}" || (echo "❌ Missing secret: AWS_SECURITY_GROUP_ID" && exit 1)
+          echo "✅ All required secrets are present"
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region:            ${{ env.AWS_REGION }}
+          aws-region:            ${{ secrets.AWS_REGION }}
 
-      # ── Step 3: Validate required deployment secrets ─────────
-      - name: Validate Required Secrets
-        run: |
-          test -n "${{ secrets.AWS_SUBNET_ID }}" || (echo "❌ Missing secret: AWS_SUBNET_ID" && exit 1)
-          test -n "${{ secrets.AWS_SECURITY_GROUP_ID }}" || (echo "❌ Missing secret: AWS_SECURITY_GROUP_ID" && exit 1)
-          echo "✅ All required secrets are present"
-
-      # ── Step 4: Login to Amazon ECR ───────────────────────
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      # ── Step 5: Build, Tag & Push Backend Docker Image ─────────────
-      - name: Build and push backend image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_BACKEND_REPO: shopsmart-backend
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          # Ensure ECR repository exists
-          aws ecr describe-repositories --repository-names "$ECR_BACKEND_REPO" --region "$AWS_REGION" >/dev/null 2>&1 || \
-            aws ecr create-repository --repository-name "$ECR_BACKEND_REPO" --region "$AWS_REGION"
-          
-          # Build and push
-          IMAGE_URI=$ECR_REGISTRY/$ECR_BACKEND_REPO:$IMAGE_TAG
-          LATEST_URI=$ECR_REGISTRY/$ECR_BACKEND_REPO:latest
-          
-          echo "Building backend Docker image..."
-          docker build -f Docker/Dockerfile.backend -t $IMAGE_URI -t $LATEST_URI .
-          
-          echo "Pushing backend image to ECR..."
-          docker push $IMAGE_URI
-          docker push $LATEST_URI
-          
-          echo "✅ Backend Docker image pushed: $IMAGE_URI"
-
-      # ── Step 6: Build, Tag & Push Frontend Docker Image ─────────────
-      - name: Build and push frontend image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_FRONTEND_REPO: shopsmart-frontend
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          # Ensure ECR repository exists
-          aws ecr describe-repositories --repository-names "$ECR_FRONTEND_REPO" --region "$AWS_REGION" >/dev/null 2>&1 || \
-            aws ecr create-repository --repository-name "$ECR_FRONTEND_REPO" --region "$AWS_REGION"
-          
-          # Build and push
-          IMAGE_URI=$ECR_REGISTRY/$ECR_FRONTEND_REPO:$IMAGE_TAG
-          LATEST_URI=$ECR_REGISTRY/$ECR_FRONTEND_REPO:latest
-          
-          echo "Building frontend Docker image..."
-          docker build -f Docker/Dockerfile.frontend -t $IMAGE_URI -t $LATEST_URI .
-          
-          echo "Pushing frontend image to ECR..."
-          docker push $IMAGE_URI
-          docker push $LATEST_URI
-          
-          echo "✅ Frontend Docker image pushed: $IMAGE_URI"
-
-      # ── Step 7: Setup Terraform ───────────────────────────
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # ── Step 8: Terraform Version Check ──────────────────
-      - name: Terraform Version Check
-        run: terraform version
+      - name: Setup S3 backend (with AWS Academy fallback)
+        run: |
+          BUCKET="${{ secrets.TF_STATE_BUCKET }}"
+          REGION="${{ secrets.AWS_REGION }}"
+          USE_S3=false
 
-      # ── Step 9: Terraform Init ───────────────────────────
+          if [ -n "$BUCKET" ]; then
+            if aws s3api head-bucket --bucket "$BUCKET" --region "$REGION" 2>/dev/null; then
+              echo "✅ S3 bucket $BUCKET already exists"
+              USE_S3=true
+            else
+              echo "Creating S3 bucket $BUCKET for Terraform state..."
+              # us-east-1 does not accept LocationConstraint; try with it first, then without
+              if aws s3api create-bucket \
+                  --bucket "$BUCKET" \
+                  --region "$REGION" \
+                  --create-bucket-configuration LocationConstraint="$REGION" 2>/dev/null || \
+                 aws s3api create-bucket \
+                  --bucket "$BUCKET" \
+                  --region "$REGION" 2>/dev/null; then
+
+                aws s3api put-bucket-versioning \
+                  --bucket "$BUCKET" \
+                  --versioning-configuration Status=Enabled
+
+                aws s3api put-bucket-encryption \
+                  --bucket "$BUCKET" \
+                  --server-side-encryption-configuration \
+                    '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+
+                aws s3api put-public-access-block \
+                  --bucket "$BUCKET" \
+                  --public-access-block-configuration \
+                    "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+
+                echo "✅ S3 bucket $BUCKET created with versioning, AES256 encryption, and public-access-block"
+                USE_S3=true
+              else
+                echo "⚠️  WARNING: Could not create S3 bucket (AWS Academy may not support S3 backend). Falling back to local state."
+              fi
+            fi
+          else
+            echo "⚠️  WARNING: TF_STATE_BUCKET secret not set. Falling back to local state."
+          fi
+
+          echo "USE_S3=$USE_S3" >> $GITHUB_ENV
+
       - name: Terraform Init
         working-directory: terraform
         run: |
-          terraform init -upgrade -input=false
-          echo "✅ Terraform initialized (using local state)"
+          if [ "$USE_S3" = "true" ]; then
+            terraform init -upgrade -input=false \
+              -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+              -backend-config="key=shopsmart/terraform.tfstate" \
+              -backend-config="region=${{ secrets.AWS_REGION }}" \
+              -backend-config="encrypt=true"
+            echo "✅ Terraform initialized with S3 remote state"
+          else
+            terraform init -upgrade -input=false -backend=false
+            echo "✅ Terraform initialized with local state (fallback)"
+          fi
 
-      # ── Step 10: Terraform Import Existing Resources ────────────
       - name: Terraform Import Existing Resources
         working-directory: terraform
         env:
           TF_VAR_image_tag: ${{ github.sha }}
-          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+          TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
         run: |
-          # Import ECR repositories if they exist
           echo "Checking for existing ECR repositories..."
-          
-          if aws ecr describe-repositories --repository-names "shopsmart-backend" --region "$AWS_REGION" >/dev/null 2>&1; then
+
+          if aws ecr describe-repositories --repository-names "shopsmart-backend" --region "${{ secrets.AWS_REGION }}" >/dev/null 2>&1; then
             echo "Backend ECR exists, importing..."
             terraform import -input=false aws_ecr_repository.backend "shopsmart-backend" || echo "Import failed or already in state"
           fi
-          
-          if aws ecr describe-repositories --repository-names "shopsmart-frontend" --region "$AWS_REGION" >/dev/null 2>&1; then
+
+          if aws ecr describe-repositories --repository-names "shopsmart-frontend" --region "${{ secrets.AWS_REGION }}" >/dev/null 2>&1; then
             echo "Frontend ECR exists, importing..."
             terraform import -input=false aws_ecr_repository.frontend "shopsmart-frontend" || echo "Import failed or already in state"
           fi
-          
-          # Import ECS cluster if it exists
-          if aws ecs describe-clusters --clusters "shopsmart-cluster" --region "$AWS_REGION" | grep -q "shopsmart-cluster"; then
+
+          if aws ecs describe-clusters --clusters "shopsmart-cluster" --region "${{ secrets.AWS_REGION }}" | grep -q "shopsmart-cluster"; then
             echo "ECS cluster exists, importing..."
             terraform import -input=false aws_ecs_cluster.main "shopsmart-cluster" || echo "Import failed or already in state"
           fi
-          
+
           echo "✅ Existing resources imported"
 
-      # ── Step 11: Terraform Plan ───────────────────────────
       - name: Terraform Plan
         working-directory: terraform
         env:
           TF_VAR_image_tag: ${{ github.sha }}
-          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+          TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
         run: |
           terraform plan -input=false -out=tfplan
           echo "✅ Terraform plan complete"
 
-      # ── Step 12: Terraform Apply ──────────────────────────
       - name: Terraform Apply
         working-directory: terraform
         run: |
           terraform apply -input=false -auto-approve tfplan
           echo "✅ Infrastructure provisioned successfully"
 
-      # ── Step 13: Force new ECS deployments ─────────────────
+  build-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    needs: [terraform-apply]
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Validate AWS_REGION secret
+        run: |
+          test -n "${{ secrets.AWS_REGION }}" || (echo "❌ Missing secret: AWS_REGION" && exit 1)
+          echo "✅ AWS_REGION secret is present"
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_BACKEND_REPO: shopsmart-backend
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          aws ecr describe-repositories --repository-names "$ECR_BACKEND_REPO" --region "${{ secrets.AWS_REGION }}" >/dev/null 2>&1 || \
+            aws ecr create-repository --repository-name "$ECR_BACKEND_REPO" --region "${{ secrets.AWS_REGION }}"
+
+          IMAGE_URI=$ECR_REGISTRY/$ECR_BACKEND_REPO:$IMAGE_TAG
+          LATEST_URI=$ECR_REGISTRY/$ECR_BACKEND_REPO:latest
+
+          echo "Building backend Docker image..."
+          docker build -f Docker/Dockerfile.backend -t $IMAGE_URI -t $LATEST_URI .
+
+          echo "Pushing backend image to ECR..."
+          docker push $IMAGE_URI
+          docker push $LATEST_URI
+
+          echo "✅ Backend Docker image pushed: $IMAGE_URI"
+
+      - name: Build and push frontend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_FRONTEND_REPO: shopsmart-frontend
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          aws ecr describe-repositories --repository-names "$ECR_FRONTEND_REPO" --region "${{ secrets.AWS_REGION }}" >/dev/null 2>&1 || \
+            aws ecr create-repository --repository-name "$ECR_FRONTEND_REPO" --region "${{ secrets.AWS_REGION }}"
+
+          IMAGE_URI=$ECR_REGISTRY/$ECR_FRONTEND_REPO:$IMAGE_TAG
+          LATEST_URI=$ECR_REGISTRY/$ECR_FRONTEND_REPO:latest
+
+          echo "Building frontend Docker image..."
+          docker build -f Docker/Dockerfile.frontend -t $IMAGE_URI -t $LATEST_URI .
+
+          echo "Pushing frontend image to ECR..."
+          docker push $IMAGE_URI
+          docker push $LATEST_URI
+
+          echo "✅ Frontend Docker image pushed: $IMAGE_URI"
+
+  deploy:
+    name: Deploy to ECS
+    runs-on: ubuntu-latest
+    needs: [build-push]
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Validate AWS_REGION secret
+        run: |
+          test -n "${{ secrets.AWS_REGION }}" || (echo "❌ Missing secret: AWS_REGION" && exit 1)
+          echo "✅ AWS_REGION secret is present"
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+
       - name: Force new deployment for backend service
-        if: success()
         run: |
           aws ecs update-service \
             --cluster shopsmart-cluster \
             --service shopsmart-backend-service \
             --force-new-deployment \
-            --region ${{ env.AWS_REGION }}
+            --region "${{ secrets.AWS_REGION }}"
           echo "✅ Backend service deployment triggered"
 
       - name: Force new deployment for frontend service
-        if: success()
         run: |
           aws ecs update-service \
             --cluster shopsmart-cluster \
             --service shopsmart-frontend-service \
             --force-new-deployment \
-            --region ${{ env.AWS_REGION }}
+            --region "${{ secrets.AWS_REGION }}"
           echo "✅ Frontend service deployment triggered"
 
-      # ── Step 14: Print Deployment Summary ─────────────────
+      - name: Wait for backend service to stabilize
+        run: |
+          echo "Waiting for backend service to stabilize (timeout: 300s)..."
+          timeout 300 aws ecs wait services-stable \
+            --cluster shopsmart-cluster \
+            --services shopsmart-backend-service \
+            --region "${{ secrets.AWS_REGION }}" || \
+          (echo "❌ Backend service failed to stabilize within 300s" && exit 1)
+          echo "✅ Backend service is stable"
+
+      - name: Wait for frontend service to stabilize
+        run: |
+          echo "Waiting for frontend service to stabilize (timeout: 300s)..."
+          timeout 300 aws ecs wait services-stable \
+            --cluster shopsmart-cluster \
+            --services shopsmart-frontend-service \
+            --region "${{ secrets.AWS_REGION }}" || \
+          (echo "❌ Frontend service failed to stabilize within 300s" && exit 1)
+          echo "✅ Frontend service is stable"
+
       - name: Deployment Summary
         if: success()
         run: |
           echo "============================================"
           echo "  ✅ DEPLOYMENT COMPLETE"
           echo "============================================"
-          echo "  Region    : ${{ env.AWS_REGION }}"
+          echo "  Region    : ${{ secrets.AWS_REGION }}"
           echo "  Commit    : ${{ github.sha }}"
           echo "  Backend   : shopsmart-backend:${{ github.sha }}"
           echo "  Frontend  : shopsmart-frontend:${{ github.sha }}"
+          echo "  Status    : Both ECS services stable"
           echo "============================================"
           echo ""
           echo "👉 Go to AWS Console → ECS → Clusters"

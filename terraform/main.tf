@@ -12,8 +12,14 @@ terraform {
   }
   required_version = ">= 1.5"
 
-  # AWS Academy: Use local state (no S3 backend)
-  # Remote state is not supported in AWS Academy environments
+  backend "s3" {
+    # Values supplied at init time via -backend-config flags:
+    # -backend-config="bucket=<TF_STATE_BUCKET>"
+    # -backend-config="key=shopsmart/terraform.tfstate"
+    # -backend-config="region=<AWS_REGION>"
+    # -backend-config="encrypt=true"
+    # Falls back to local state in AWS Academy environments
+  }
 }
 
 provider "aws" {
