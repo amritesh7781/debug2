@@ -138,8 +138,9 @@ jobs:
 
       - name: Setup S3 backend (with AWS Academy fallback)
         run: |
-          BUCKET="${{ secrets.TF_STATE_BUCKET }}"
-          REGION="${{ secrets.AWS_REGION }}"
+          # Trim any whitespace/newlines from secrets
+          BUCKET=$(echo "${{ secrets.TF_STATE_BUCKET }}" | tr -d '[:space:]')
+          REGION=$(echo "${{ secrets.AWS_REGION }}" | tr -d '[:space:]')
           USE_S3=false
 
           if [ -n "$BUCKET" ]; then
@@ -186,11 +187,14 @@ jobs:
       - name: Terraform Init
         working-directory: terraform
         run: |
+          # Trim any whitespace/newlines from secrets
+          BUCKET=$(echo "${{ secrets.TF_STATE_BUCKET }}" | tr -d '[:space:]')
+          REGION=$(echo "${{ secrets.AWS_REGION }}" | tr -d '[:space:]')
           if [ "$USE_S3" = "true" ]; then
             terraform init -upgrade -input=false \
-              -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+              -backend-config="bucket=${BUCKET}" \
               -backend-config="key=shopsmart/terraform.tfstate" \
-              -backend-config="region=${{ secrets.AWS_REGION }}" \
+              -backend-config="region=${REGION}" \
               -backend-config="encrypt=true"
             echo "✅ Terraform initialized with S3 remote state"
           else
