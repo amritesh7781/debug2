@@ -41,7 +41,7 @@ resource "aws_ecr_repository" "backend" {
     scan_on_push = true
   }
 
-  image_tag_mutability = "IMMUTABLE"
+  image_tag_mutability = "MUTABLE"
 
   tags = {
     Name        = var.ecr_backend_repo_name
@@ -57,7 +57,7 @@ resource "aws_ecr_repository" "frontend" {
     scan_on_push = true
   }
 
-  image_tag_mutability = "IMMUTABLE"
+  image_tag_mutability = "MUTABLE"
 
   tags = {
     Name        = var.ecr_frontend_repo_name
