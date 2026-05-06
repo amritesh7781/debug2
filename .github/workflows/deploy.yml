@@ -11,11 +11,9 @@ on:
     branches:
       - main
   workflow_dispatch:
-#env:
-  #TF_VERSION: 1.14.8
-  #TF_IN_AUTOMATION: true
-  #TF_VAR_subnet_ids: '["${{ secrets.AWS_SUBNET_ID }}"]'
-  #TF_VAR_security_group_id: ${{ secrets.AWS_SECURITY_GROUP_ID }}
+env:
+  TF_VERSION: 1.14.8
+  TF_IN_AUTOMATION: true
 
 jobs:
   lint:

@@ -29,6 +29,54 @@ provider "aws" {
 # Auto-fetch current AWS Account ID (no hardcoding needed)
 data "aws_caller_identity" "current" {}
 
+# Auto-discover default VPC and its subnets (AWS Academy guarantees a default VPC)
+data "aws_vpc" "default" {
+  default = true
+}
+
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
+# Security group allowing inbound traffic to the frontend and backend container ports
+resource "aws_security_group" "ecs_tasks" {
+  name        = "shopsmart-ecs-tasks-sg"
+  description = "Allow inbound HTTP and backend traffic to ECS tasks"
+  vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    description = "Frontend HTTP"
+    from_port   = var.frontend_port
+    to_port     = var.frontend_port
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "Backend API"
+    from_port   = var.backend_port
+    to_port     = var.backend_port
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "Allow all outbound"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name        = "shopsmart-ecs-tasks-sg"
+    Environment = "lab"
+  }
+}
+
 # ──────────────────────────────────────────
 # ECR Repositories
 # ──────────────────────────────────────────
@@ -233,8 +281,8 @@ resource "aws_ecs_service" "backend" {
   deployment_maximum_percent         = 200
 
   network_configuration {
-    subnets          = var.subnet_ids
-    security_groups  = [var.security_group_id]
+    subnets          = data.aws_subnets.default.ids
+    security_groups  = [aws_security_group.ecs_tasks.id]
     assign_public_ip = true
   }
 
@@ -257,8 +305,8 @@ resource "aws_ecs_service" "frontend" {
   deployment_maximum_percent         = 200
 
   network_configuration {
-    subnets          = var.subnet_ids
-    security_groups  = [var.security_group_id]
+    subnets          = data.aws_subnets.default.ids
+    security_groups  = [aws_security_group.ecs_tasks.id]
     assign_public_ip = true
   }
 

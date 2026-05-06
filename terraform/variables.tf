@@ -72,16 +72,6 @@ variable "image_tag" {
   description = "Docker image tag (Git SHA) — required at plan time"
 }
 
-variable "subnet_ids" {
-  type        = list(string)
-  description = "Subnet IDs for ECS tasks"
-}
-
-variable "security_group_id" {
-  type        = string
-  description = "Security group ID for ECS tasks"
-}
-
 variable "backend_env_vars" {
   type        = map(string)
   default     = {}
