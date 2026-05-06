@@ -201,7 +201,8 @@ jobs:
             terraform init -upgrade -input=false -backend=false
             echo "✅ Terraform initialized with local state (fallback)"
           fi
-
+      - name: Terraform Init
+        run: terraform init -input=false -reconfigure
       - name: Terraform Import Existing Resources
         working-directory: terraform
         env:
